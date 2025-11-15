@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import json
 import os, re
+import time
 from datetime import datetime
 import pandas as pd
 
@@ -12,8 +13,8 @@ st.set_page_config(page_title="Policy-Aware RAG", page_icon="🧠", layout="wide
 st.title("RA3G")
 st.text("🧠 Policy-Aware RAG System with Governance Control")
 
-# Tabs: Chat | Logs | Configuration
-tab1, tab2, tab3 = st.tabs(["💬 Chat Interface", " Logs", "⚙️ Configuration"])
+# Tabs: Chat | Status | Logs | Configuration
+tab1, tab2, tab3, tab4 = st.tabs(["💬 Chat Interface", "📊 Status", "📋 Logs", "⚙️ Configuration"])
 
 # ---------------------------------------------------
 # TAB 1 — CHAT INTERFACE
@@ -85,9 +86,127 @@ with tab1:
             st.markdown(f"**A:** {turn['answer']}")
 
 # ---------------------------------------------------
-# TAB 2 — LOG VIEWER
+# TAB 2 — STATUS MONITOR
 # ---------------------------------------------------
 with tab2:
+    st.subheader("📊 Agent Status Monitor")
+    
+    # Manual refresh button
+    col_refresh, col_auto = st.columns([1, 3])
+    with col_refresh:
+        if st.button("🔄 Refresh Now", key="manual_refresh_btn"):
+            fetch_health_data.clear()
+            st.rerun()
+    
+    with col_auto:
+        auto_refresh = st.checkbox("🔄 Auto-refresh (10s)", value=False, key="auto_refresh_status")
+        refresh_interval = 10
+    
+    # Initialize refresh timer in session state
+    if "last_refresh" not in st.session_state:
+        st.session_state.last_refresh = time.time()
+    
+    # Cache health data for 10 seconds
+    @st.cache_data(ttl=refresh_interval)
+    def fetch_health_data():
+        """Fetch health data from API with caching."""
+        try:
+            resp = requests.get(f"{FASTAPI_URL}/health", timeout=2)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+        except Exception as e:
+            return {"error": str(e)}
+    
+    # Status indicator mapping
+    def get_status_emoji(status: str) -> str:
+        """Get emoji for status."""
+        status_map = {
+            "healthy": "🟢",
+            "slow": "🟡",
+            "down": "🔴"
+        }
+        return status_map.get(status, "⚪")
+    
+    # Fetch and display status
+    health_data = fetch_health_data()
+    
+    if health_data and "error" not in health_data:
+        agents = health_data.get("agents", {})
+        overall_status = health_data.get("status", "unknown")
+        
+        # Overall status
+        st.markdown(f"**Overall System Status:** {get_status_emoji('healthy' if overall_status == 'ok' else 'down')} {overall_status.upper()}")
+        st.markdown("---")
+        
+        # Agent status cards
+        col1, col2 = st.columns(2)
+        
+        agent_names = ["gateway", "retriever", "reasoner", "governance"]
+        agent_display = {
+            "gateway": "🌐 Gateway",
+            "retriever": "🔍 Retriever",
+            "reasoner": "🧠 Reasoning",
+            "governance": "🛡️ Governance"
+        }
+        
+        for idx, agent_name in enumerate(agent_names):
+            col = col1 if idx % 2 == 0 else col2
+            
+            with col:
+                if agent_name in agents:
+                    agent_status = agents[agent_name]
+                    status = agent_status.get("status", "unknown")
+                    uptime = agent_status.get("uptime_seconds", 0)
+                    latency = agent_status.get("latency_ms", 0)
+                    errors = agent_status.get("error_count", 0)
+                    requests = agent_status.get("request_count", 0)
+                    last_activity = agent_status.get("last_activity", "N/A")
+                    
+                    # Status card
+                    with st.expander(f"{get_status_emoji(status)} {agent_display.get(agent_name, agent_name)}", expanded=False):
+                        st.metric("Status", status.upper())
+                        st.metric("Uptime", f"{uptime:.1f}s")
+                        st.metric("Avg Latency", f"{latency:.1f}ms")
+                        st.metric("Errors", errors)
+                        st.metric("Requests", requests)
+                        st.caption(f"Last activity: {last_activity}")
+                        
+                        # View detailed status
+                        if st.button(f"📋 View Details", key=f"details_{agent_name}"):
+                            try:
+                                detail_resp = requests.get(f"{FASTAPI_URL}/health/{agent_name}", timeout=2)
+                                if detail_resp.status_code == 200:
+                                    st.json(detail_resp.json())
+                            except Exception as e:
+                                st.error(f"Failed to fetch details: {e}")
+                else:
+                    st.info(f"⚠️ {agent_display.get(agent_name, agent_name)}: No data available")
+        
+        # Auto-refresh logic with placeholder
+        refresh_placeholder = st.empty()
+        if auto_refresh:
+            current_time = time.time()
+            elapsed = current_time - st.session_state.last_refresh
+            if elapsed >= refresh_interval:
+                st.session_state.last_refresh = current_time
+                # Clear cache to force refresh
+                fetch_health_data.clear()
+                st.rerun()
+            else:
+                remaining = refresh_interval - elapsed
+                refresh_placeholder.caption(f"⏱️ Next refresh in {remaining:.1f}s")
+        else:
+            refresh_placeholder.empty()
+    else:
+        error_msg = health_data.get("error", "Unknown error") if health_data else "Failed to fetch health data"
+        st.error(f"❌ Failed to fetch agent status: {error_msg}")
+        st.info("Make sure the FastAPI backend is running.")
+
+# ---------------------------------------------------
+# TAB 3 — LOG VIEWER
+# ---------------------------------------------------
+with tab3:
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     LOG_DIR = os.path.join(BASE_DIR, "logs")
 
@@ -155,9 +274,9 @@ with tab2:
 
 
 # ---------------------------------------------------
-# TAB 3 — CONFIGURATION EDITOR
+# TAB 4 — CONFIGURATION EDITOR
 # ---------------------------------------------------
-with tab3:
+with tab4:
     st.subheader("⚙️ Configuration Settings")
 
     CONFIG_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config.yml"))
