@@ -214,6 +214,9 @@ async def health_check():
         "index_loaded": index_loaded,
         "ollama_status": ollama_status,
         "agents": agents_status,
+        # Real thresholds currently loaded from config.yml — surfaced here so operators
+        # never have to trust README/docs to know what governance is actually enforcing.
+        "governance_thresholds": Config.get("THRESHOLDS"),
         "timestamp": datetime.now().isoformat(),
     }
 

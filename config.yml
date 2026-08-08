@@ -11,8 +11,8 @@ EMBED_DIM: 384
 AUTO_BUILD_FAISS: true
 CORPUS_DIR: data/corpus
 THRESHOLDS:
-  retriever: 0.2
-  reasoner: 0.3
+  retriever: 0.72
+  reasoner: 0.81
 PII_FILTERS:
   email: true
   phone: true
